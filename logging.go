@@ -17,10 +17,14 @@ func init() {
 }
 
 // GetLogger will get a logger object that component, logname specified;
-//	will using logDir, backupDir, level to create a new logger object if not found
-func GetLogger(logDir, backupDir string,
-	level LogLevel,
-	component, logname string, suffixes ...string) (Logger, error) {
+//	will using config to create a new logger object if not found
+func GetLogger(component, logname string, config *Config,
+	suffixes ...string) (Logger, error) {
+	if config == nil || config.LogDir == "" || config.BackupDir == "" {
+		fmt.Println("invalid logging config, using default logging config")
+		config = DefaultConfig
+	}
+
 	key := fmt.Sprintf("%s-%s", component, logname)
 	rwlock.RLock()
 	logger, ok := loggers[key]
@@ -41,7 +45,7 @@ func GetLogger(logDir, backupDir string,
 		suffix = suffixes[0]
 	}
 
-	logger, err := newLogger(logDir, backupDir, level, component, logname, suffix)
+	logger, err := newLogger(config.LogDir, config.BackupDir, config.Level, component, logname, suffix)
 	if err != nil {
 		return nil, err
 	}

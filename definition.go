@@ -14,19 +14,24 @@ const (
 	LogLevelError
 )
 
-// Logger defines logger interface
-type Logger interface {
-	// SetLevel
-	SetLevel(LogLevel)
-	CheckLevel(LogLevel) bool
-	Write(string, bool, ...interface{})
-	Debug(...interface{})
-	Trace(...interface{})
-	Warn(...interface{})
-	Error(...interface{})
-}
-
 const (
 	dateFormat = "2006-01-02"
 	hourFormat = "2006010215"
 )
+
+// Config stores the config for logger
+type Config struct {
+	// LogDir stores log dir
+	LogDir string
+	// BackupDir stores backup dir
+	BackupDir string
+	// Level describe log level
+	Level LogLevel
+}
+
+// DefaultConfig stores a default logging config
+var DefaultConfig = &Config{
+	LogDir:    "./logs/now",
+	BackupDir: "./logs/backups",
+	Level:     LogLevelTrace,
+}

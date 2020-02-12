@@ -11,7 +11,7 @@ var (
 )
 
 func TestInit(t *testing.T) {
-	logger, err := GetLogger("logs/logs", "logs/backuplogs", LogLevelError, "logging", "test")
+	logger, err := GetLogger("logging", "test", nil)
 	if err != nil {
 		fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "init logger failed with error", err)
 		t.Fatal("init logger failed with error", err)
