@@ -78,7 +78,7 @@ func (l *logger) SetLevel(level LogLevel) {
 func (l *logger) CheckLevel(level LogLevel) bool {
 	l.RLock()
 	defer l.RUnlock()
-	return l.logLevel >= level
+	return l.logLevel <= level
 }
 
 func (l *logger) Debug(args ...interface{}) {
