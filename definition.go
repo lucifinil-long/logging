@@ -1,11 +1,8 @@
 package logging
 
-// LogLevel describes logging level
-type LogLevel uint32
-
 const (
 	// LogLevelDebug marks debug logging level
-	LogLevelDebug LogLevel = iota
+	LogLevelDebug uint8 = iota
 	// LogLevelTrace marks trace logging level
 	LogLevelTrace
 	// LogLevelWarn marks warn logging level
@@ -26,7 +23,7 @@ type Config struct {
 	// BackupDir stores backup dir
 	BackupDir string
 	// Level describe log level
-	Level LogLevel
+	Level uint8
 }
 
 // DefaultConfig stores a default logging config

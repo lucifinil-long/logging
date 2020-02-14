@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 var (
@@ -19,9 +20,10 @@ func init() {
 // GetLogger will get a logger object that component, logname specified;
 //	will using config to create a new logger object if not found
 func GetLogger(component, logname string, config *Config,
-	suffixes ...string) (Logger, error) {
+	suffixes ...string) (interface{}, error) {
 	if config == nil || config.LogDir == "" || config.BackupDir == "" {
-		fmt.Println("invalid logging config, using default logging config")
+		fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "logging.GetLogger",
+			"invalid logging config, using default logging config")
 		config = DefaultConfig
 	}
 
@@ -55,7 +57,7 @@ func GetLogger(component, logname string, config *Config,
 }
 
 func newLogger(logDir, backupDir string,
-	level LogLevel,
+	level uint8,
 	component, logname, suffix string) (Logger, error) {
 	// try to create log directory
 	os.MkdirAll(logDir, os.ModePerm)
@@ -64,11 +66,17 @@ func newLogger(logDir, backupDir string,
 	filename := filepath.Join(logDir, fmt.Sprintf("%s-%s", component, logname))
 	logger, err := buildLogger(filename, suffix, backupDir)
 	if err != nil {
-		fmt.Println("build logger failed with", err)
+		fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "logging.GetLogger",
+			"build logger failed with", err)
 		return nil, err
 	}
 
-	fmt.Println("log file suffix is", filename)
+	logLevel := logLevels[int(LogLevelTrace)]
+	if level >= LogLevelDebug && level <= LogLevelError {
+		logLevel = logLevels[int(level)]
+	}
+	fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "logging.GetLogger",
+		"log file suffix is", filename, "while log level is", logLevel)
 	logger.SetLevel(level)
 
 	return logger, nil

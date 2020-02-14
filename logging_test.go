@@ -16,7 +16,7 @@ func TestInit(t *testing.T) {
 		fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "init logger failed with error", err)
 		t.Fatal("init logger failed with error", err)
 	}
-	l = logger
+	l = logger.(Logger)
 }
 
 func TestLogs(t *testing.T) {

@@ -2,6 +2,7 @@ package logging
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ type logger struct {
 	sync.RWMutex
 	logInfoMap map[string]*loggerInfo
 	suffixInfo string
-	logLevel   LogLevel
+	logLevel   uint8
 }
 
 func (l *logger) String() string {
@@ -65,7 +66,7 @@ func (l *logger) Write(filename string, suffix bool, args ...interface{}) {
 	loggerInfo.Write(format("Raw", suffix, l.suffixInfo, args...))
 }
 
-func (l *logger) SetLevel(level LogLevel) {
+func (l *logger) SetLevel(level uint8) {
 	l.Lock()
 	defer l.Unlock()
 	if level > LogLevelError {
@@ -75,13 +76,24 @@ func (l *logger) SetLevel(level LogLevel) {
 	}
 }
 
-func (l *logger) CheckLevel(level LogLevel) bool {
+func (l *logger) CheckLevel(level uint8) bool {
 	l.RLock()
 	defer l.RUnlock()
 	return l.logLevel <= level
 }
 
 func (l *logger) Debug(args ...interface{}) {
+	pc := make([]uintptr, 1)
+	runtime.Callers(2, pc)
+	f := runtime.FuncForPC(pc[0])
+	logs := make([]interface{}, 0, len(args)+1)
+	logs = append(logs, f.Name())
+	logs = append(logs, args...)
+
+	l.debug(logs...)
+}
+
+func (l *logger) debug(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logDebug]
 	d := l.CheckLevel(LogLevelDebug)
@@ -94,10 +106,24 @@ func (l *logger) Debug(args ...interface{}) {
 	if l.suffixInfo == "" {
 		hasSuffix = false
 	}
-	loggerInfo.Write(format(logDebug, hasSuffix, l.suffixInfo, args...))
+
+	log := format(logDebug, hasSuffix, l.suffixInfo, args...)
+	fmt.Println(log)
+	loggerInfo.Write(log)
 }
 
 func (l *logger) Trace(args ...interface{}) {
+	pc := make([]uintptr, 1)
+	runtime.Callers(2, pc)
+	f := runtime.FuncForPC(pc[0])
+	logs := make([]interface{}, 0, len(args)+1)
+	logs = append(logs, f.Name())
+	logs = append(logs, args...)
+
+	l.trace(logs...)
+}
+
+func (l *logger) trace(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logTrace]
 	d := l.CheckLevel(LogLevelTrace)
@@ -106,7 +132,7 @@ func (l *logger) Trace(args ...interface{}) {
 		return
 	}
 
-	l.Debug(args...)
+	l.debug(args...)
 
 	hasSuffix := true
 	if l.suffixInfo == "" {
@@ -116,6 +142,17 @@ func (l *logger) Trace(args ...interface{}) {
 }
 
 func (l *logger) Warn(args ...interface{}) {
+	pc := make([]uintptr, 1)
+	runtime.Callers(2, pc)
+	f := runtime.FuncForPC(pc[0])
+	logs := make([]interface{}, 0, len(args)+1)
+	logs = append(logs, f.Name())
+	logs = append(logs, args...)
+
+	l.warn(logs)
+}
+
+func (l *logger) warn(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logWarn]
 	d := l.CheckLevel(LogLevelWarn)
@@ -123,7 +160,8 @@ func (l *logger) Warn(args ...interface{}) {
 	if !d {
 		return
 	}
-	l.Trace(args...)
+
+	l.trace(args...)
 
 	hasSuffix := true
 	if l.suffixInfo == "" {
@@ -140,13 +178,21 @@ func (l *logger) Error(args ...interface{}) {
 	if !d {
 		return
 	}
-	l.Warn(args...)
+
+	pc := make([]uintptr, 1)
+	runtime.Callers(2, pc)
+	f := runtime.FuncForPC(pc[0])
+	logs := make([]interface{}, 0, len(args)+1)
+	logs = append(logs, f.Name())
+	logs = append(logs, args...)
+
+	l.warn(logs...)
 
 	hasSuffix := true
 	if l.suffixInfo == "" {
 		hasSuffix = false
 	}
-	loggerInfo.Write(format(logError, hasSuffix, l.suffixInfo, args...))
+	loggerInfo.Write(format(logError, hasSuffix, l.suffixInfo, logs...))
 }
 
 func buildLogger(filename, suffix, backupDir string) (Logger, error) {
