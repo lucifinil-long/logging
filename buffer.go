@@ -10,14 +10,24 @@ type loggerBuffer struct {
 	bufferContent *bytes.Buffer
 }
 
-func (info *loggerBuffer) WriteString(str string) {
-	info.bufferContent.WriteString(str)
+type cacheBuffer struct {
+	buffer *bytes.Buffer
+	stop   bool
 }
 
-func (info *loggerBuffer) WriteBuffer(bufferQueue chan loggerBuffer) {
+func (info *loggerBuffer) WriteString(str string) {
 	info.bufferLock.Lock()
-	if info.bufferContent.Len() > 0 {
-		bufferQueue <- *info
+	info.bufferContent.WriteString(str)
+	info.bufferLock.Unlock()
+}
+
+func (info *loggerBuffer) WriteBuffer(bufferQueue chan *cacheBuffer, stop bool) {
+	info.bufferLock.Lock()
+	if info.bufferContent.Len() > 0 || stop {
+		bufferQueue <- &cacheBuffer{
+			buffer: info.bufferContent,
+			stop:   stop,
+		}
 		info.bufferContent = bytes.NewBuffer(make([]byte, 0, defaultBufferSize))
 	}
 	info.bufferLock.Unlock()

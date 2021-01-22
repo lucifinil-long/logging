@@ -4,29 +4,31 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"time"
 )
 
 type loggerInfo struct {
-	filename       string
-	bufferInfoLock sync.RWMutex
-	buffer         *loggerBuffer
-	bufferQueue    chan loggerBuffer
-	fsyncInterval  time.Duration
-	hour           time.Time
-	fileOrder      int
-	logFile        *os.File
-	backupDir      string
+	filename      string
+	buffer        *loggerBuffer
+	bufferQueue   chan *cacheBuffer
+	fsyncInterval time.Duration
+	hour          time.Time
+	fileOrder     int
+	logFile       *os.File
+	historyDir    string
+	stopCh        chan bool
+	endCh         chan bool
 }
 
 func newLoggerInfo(filename, level string) (*loggerInfo, error) {
 	info := &loggerInfo{
-		bufferQueue:   make(chan loggerBuffer, 50000),
+		bufferQueue:   make(chan *cacheBuffer, 50000),
 		fsyncInterval: time.Second,
 		buffer:        newLoggerBuffer(),
 		fileOrder:     0,
-		backupDir:     "",
+		historyDir:    "",
+		stopCh:        make(chan bool),
+		endCh:         make(chan bool),
 	}
 
 	t, _ := time.Parse(hourFormat, time.Now().Format(hourFormat))
@@ -41,7 +43,7 @@ func newLoggerInfo(filename, level string) (*loggerInfo, error) {
 
 	err := info.CreateFile()
 	if err != nil {
-		println("[NewLogger] openfile error : " + err.Error())
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[NewLogger] openfile error : "+err.Error())
 		return nil, err
 	}
 	return info, nil
@@ -71,15 +73,15 @@ func (info *loggerInfo) NeedSplit() (split bool, backup bool) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// file is not exist, recreates file
-			println("[NeedSplit] FileSize: " + err.Error())
+			println(time.Now().Format("2006-01-02 15:04:05.000:"), "[NeedSplit] FileSize: "+err.Error())
 			if err = info.CreateFile(); err != nil {
 				// if still failed, only output error
-				println("[NeedSplit] CreateFile : " + err.Error())
+				println(time.Now().Format("2006-01-02 15:04:05.000:"), "[NeedSplit] CreateFile : "+err.Error())
 			}
 			return false, false
 		}
 		// only log error if error is not NoExistError
-		println("[NeedSplit] FileSize: " + err.Error())
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[NeedSplit] FileSize: "+err.Error())
 		return false, false
 	}
 
@@ -91,9 +93,12 @@ func (info *loggerInfo) NeedSplit() (split bool, backup bool) {
 }
 
 func (info *loggerInfo) Write(content string) {
-	info.bufferInfoLock.Lock()
-	info.buffer.WriteString(content)
-	info.bufferInfoLock.Unlock()
+	select {
+	case <-info.stopCh:
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "stopped logging yet, abandoned content:", content)
+	default:
+		info.buffer.WriteString(content)
+	}
 }
 
 func (info *loggerInfo) WriteBufferToQueue() {
@@ -101,10 +106,13 @@ func (info *loggerInfo) WriteBufferToQueue() {
 	ticker := time.NewTicker(info.fsyncInterval)
 	defer ticker.Stop()
 	for {
-		<-ticker.C
-		info.bufferInfoLock.RLock()
-		info.buffer.WriteBuffer(info.bufferQueue)
-		info.bufferInfoLock.RUnlock()
+		select {
+		case <-ticker.C:
+			info.buffer.WriteBuffer(info.bufferQueue, false)
+		case <-info.stopCh:
+			info.buffer.WriteBuffer(info.bufferQueue, true)
+			return
+		}
 	}
 }
 
@@ -113,10 +121,10 @@ func (info *loggerInfo) LoggerBackup(hour time.Time) {
 	var newFile string   //需要备份的新文件
 	var backupDir string //备份的路径
 
-	if info.backupDir == "" {
+	if info.historyDir == "" {
 		return
 	}
-	backupDir = filepath.Join(info.backupDir, hour.Format(dateFormat))
+	backupDir = filepath.Join(info.historyDir, hour.Format(dateFormat))
 	if _, err := os.Stat(backupDir); os.IsNotExist(err) {
 		os.MkdirAll(backupDir, 0777)
 	}
@@ -126,7 +134,7 @@ func (info *loggerInfo) LoggerBackup(hour time.Time) {
 	if stat, err := os.Stat(oldFile); err == nil {
 		newFile = filepath.Join(backupDir, stat.Name())
 		if err := os.Rename(oldFile, newFile); err != nil {
-			println("[LoggerBackup] os.Rename:" + err.Error())
+			println(time.Now().Format("2006-01-02 15:04:05.000:"), "[LoggerBackup] os.Rename:"+err.Error())
 		}
 	}
 
@@ -136,74 +144,103 @@ func (info *loggerInfo) LoggerBackup(hour time.Time) {
 		if stat, err := os.Stat(oldFile); err == nil {
 			newFile = filepath.Join(backupDir, stat.Name())
 			if err := os.Rename(oldFile, newFile); err != nil {
-				println("[LoggerBackup] os.Rename:" + err.Error())
+				println(time.Now().Format("2006-01-02 15:04:05.000:"), "[LoggerBackup] os.Rename:"+err.Error())
 			}
 		}
 	}
 }
 
+func (info *loggerInfo) split(isBackup bool) {
+	info.logFile.Close()
+	newFilename := info.filename + "." + info.hour.Format(hourFormat) + "." + strconv.Itoa(info.fileOrder%maxFileCount)
+	_, fileErr := os.Stat(newFilename)
+	if fileErr == nil {
+		os.Remove(newFilename)
+	}
+	err := os.Rename(info.filename, newFilename)
+	if err != nil {
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[FlushBufferQueue] Rename : "+err.Error())
+	}
+	if err = info.CreateFile(); err != nil {
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[FlushBufferQueue] CreateFile : "+err.Error())
+	}
+
+	info.fileOrder++
+	if isBackup {
+		info.fileOrder = 0
+		go info.LoggerBackup(info.hour)
+		info.hour, _ = time.Parse(hourFormat, time.Now().Format(hourFormat))
+	}
+}
+
+func (info *loggerInfo) backup() {
+	info.logFile.Close()
+
+	var newFilename string
+	if info.fileOrder == 0 {
+		newFilename = info.filename + "." + info.hour.Format(hourFormat)
+	} else {
+		newFilename = info.filename + "." + info.hour.Format(hourFormat) + "." + strconv.Itoa(info.fileOrder%maxFileCount)
+	}
+
+	_, fileErr := os.Stat(newFilename)
+	if fileErr == nil {
+		os.Remove(newFilename)
+	}
+	err := os.Rename(info.filename, newFilename)
+	if err != nil {
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[FlushBufferQueue] Rename : "+err.Error())
+	}
+	if err = info.CreateFile(); err != nil {
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "[FlushBufferQueue] CreateFile : "+err.Error())
+	}
+
+	info.fileOrder = 0
+	go info.LoggerBackup(info.hour)
+	info.hour, _ = time.Parse(hourFormat, time.Now().Format(hourFormat))
+}
+
 func (info *loggerInfo) FlushBufferQueue() {
 	for {
 		select {
-		case buffer := <-info.bufferQueue:
+		case cache := <-info.bufferQueue:
 			// check whether need to split the log file
 			isSplit, isBackup := info.NeedSplit()
 			if isSplit {
-				info.logFile.Close()
-				newFilename := info.filename + "." + info.hour.Format(hourFormat) + "." + strconv.Itoa(info.fileOrder%maxFileCount)
-				_, fileErr := os.Stat(newFilename)
-				if fileErr == nil {
-					os.Remove(newFilename)
-				}
-				err := os.Rename(info.filename, newFilename)
-				if err != nil {
-					println("[FlushBufferQueue] Rename : " + err.Error())
-				}
-				if err = info.CreateFile(); err != nil {
-					println("[FlushBufferQueue] CreateFile : " + err.Error())
-				}
-
-				info.fileOrder++
-				if isBackup {
-					info.fileOrder = 0
-					go info.LoggerBackup(info.hour)
-					info.hour, _ = time.Parse(hourFormat, time.Now().Format(hourFormat))
-				}
+				info.split(isBackup)
 			} else {
 				if isBackup {
-					info.logFile.Close()
-
-					var newFilename string
-					if info.fileOrder == 0 {
-						newFilename = info.filename + "." + info.hour.Format(hourFormat)
-					} else {
-						newFilename = info.filename + "." + info.hour.Format(hourFormat) + "." + strconv.Itoa(info.fileOrder%maxFileCount)
-					}
-
-					_, fileErr := os.Stat(newFilename)
-					if fileErr == nil {
-						os.Remove(newFilename)
-					}
-					err := os.Rename(info.filename, newFilename)
-					if err != nil {
-						println("[FlushBufferQueue] Rename : " + err.Error())
-					}
-					if err = info.CreateFile(); err != nil {
-						println("[FlushBufferQueue] CreateFile : " + err.Error())
-					}
-
-					info.fileOrder = 0
-					go info.LoggerBackup(info.hour)
-					info.hour, _ = time.Parse(hourFormat, time.Now().Format(hourFormat))
+					info.backup()
 				}
 			}
 
 			// retry again if write failed
-			if _, err := info.logFile.Write(buffer.bufferContent.Bytes()); err != nil {
-				println("[FlushBufferQueue] File.Write : " + err.Error())
-				info.logFile.Write(buffer.bufferContent.Bytes())
+			if _, err := info.logFile.Write(cache.buffer.Bytes()); err != nil {
+				println(time.Now().Format("2006-01-02 15:04:05.000:"), "[FlushBufferQueue] File.Write : "+err.Error())
+				info.logFile.Write(cache.buffer.Bytes())
 			}
 			info.logFile.Sync()
+
+			// check need to stop
+			if cache.stop {
+				println(time.Now().Format("2006-01-02 15:04:05.000:"), "received stop signal for", info.filename)
+				info.logFile.Close()
+				close(info.endCh)
+				return
+			}
 		}
+	}
+}
+
+func (info *loggerInfo) Close() {
+	select {
+	case <-info.stopCh:
+	default:
+		close(info.stopCh)
+	}
+
+	select {
+	case <-info.endCh:
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "stoped logging to", info.filename)
 	}
 }

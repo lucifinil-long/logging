@@ -47,16 +47,15 @@ func (l *logger) String() string {
 }
 
 func (l *logger) Write(filename string, suffix bool, args ...interface{}) {
-	/*不存在需要重新初始化一下*/
 	l.Lock()
 	defer l.Unlock()
 
 	var err error
 	loggerInfo, ok := l.logInfoMap[filename]
-	if !ok {
+	if !ok { //不存在需要重新初始化一下
 		// reinit logger info object if not exist
 		if loggerInfo, err = newLoggerInfo(filename, ""); err != nil {
-			println("[NewLoggerInfo] Write : " + err.Error())
+			println(time.Now().Format("2006-01-02 15:04:05.000:"), "[NewLoggerInfo] Write : "+err.Error())
 			return
 		}
 		go loggerInfo.WriteBufferToQueue()
@@ -82,13 +81,19 @@ func (l *logger) CheckLevel(level uint8) bool {
 	return l.logLevel <= level
 }
 
-func (l *logger) Debug(args ...interface{}) {
+func addFuncNameToLogs(args []interface{}) []interface{} {
 	pc := make([]uintptr, 1)
-	runtime.Callers(2, pc)
+	runtime.Callers(3, pc)
 	f := runtime.FuncForPC(pc[0])
 	logs := make([]interface{}, 0, len(args)+1)
 	logs = append(logs, f.Name())
 	logs = append(logs, args...)
+
+	return logs
+}
+
+func (l *logger) Debug(args ...interface{}) {
+	logs := addFuncNameToLogs(args)
 
 	l.debug(logs...)
 }
@@ -108,17 +113,12 @@ func (l *logger) debug(args ...interface{}) {
 	}
 
 	log := format(logDebug, hasSuffix, l.suffixInfo, args...)
-	fmt.Println(log)
+	fmt.Print(log)
 	loggerInfo.Write(log)
 }
 
 func (l *logger) Trace(args ...interface{}) {
-	pc := make([]uintptr, 1)
-	runtime.Callers(2, pc)
-	f := runtime.FuncForPC(pc[0])
-	logs := make([]interface{}, 0, len(args)+1)
-	logs = append(logs, f.Name())
-	logs = append(logs, args...)
+	logs := addFuncNameToLogs(args)
 
 	l.trace(logs...)
 }
@@ -142,14 +142,9 @@ func (l *logger) trace(args ...interface{}) {
 }
 
 func (l *logger) Warn(args ...interface{}) {
-	pc := make([]uintptr, 1)
-	runtime.Callers(2, pc)
-	f := runtime.FuncForPC(pc[0])
-	logs := make([]interface{}, 0, len(args)+1)
-	logs = append(logs, f.Name())
-	logs = append(logs, args...)
+	logs := addFuncNameToLogs(args)
 
-	l.warn(logs)
+	l.warn(logs...)
 }
 
 func (l *logger) warn(args ...interface{}) {
@@ -179,12 +174,7 @@ func (l *logger) Error(args ...interface{}) {
 		return
 	}
 
-	pc := make([]uintptr, 1)
-	runtime.Callers(2, pc)
-	f := runtime.FuncForPC(pc[0])
-	logs := make([]interface{}, 0, len(args)+1)
-	logs = append(logs, f.Name())
-	logs = append(logs, args...)
+	logs := addFuncNameToLogs(args)
 
 	l.warn(logs...)
 
@@ -195,14 +185,22 @@ func (l *logger) Error(args ...interface{}) {
 	loggerInfo.Write(format(logError, hasSuffix, l.suffixInfo, logs...))
 }
 
-func buildLogger(filename, suffix, backupDir string) (Logger, error) {
+func (l *logger) Shutdown() error {
+	for k, v := range l.logInfoMap {
+		v.Close()
+		println(time.Now().Format("2006-01-02 15:04:05.000:"), "closed", k, "logging.")
+	}
+	return nil
+}
+
+func buildLogger(filename, suffix, historyDir string) (Logger, error) {
 	logInfoMap := make(map[string]*loggerInfo, 5)
 	for _, level := range logLevels {
 		logInfo, err := newLoggerInfo(filename, level)
 		if err != nil {
 			return nil, err
 		}
-		logInfo.backupDir = backupDir
+		logInfo.historyDir = historyDir
 		go logInfo.WriteBufferToQueue()
 		go logInfo.FlushBufferQueue()
 		logInfoMap[level] = logInfo

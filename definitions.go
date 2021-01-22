@@ -20,15 +20,15 @@ const (
 type Config struct {
 	// LogDir stores log dir
 	LogDir string
-	// BackupDir stores backup dir
-	BackupDir string
+	// HistoryDir stores backup dir
+	HistoryDir string
 	// Level describe log level
 	Level uint8
 }
 
-// DefaultConfig stores a default logging config
-var DefaultConfig = &Config{
-	LogDir:    "./logs/now",
-	BackupDir: "./logs/backups",
-	Level:     LogLevelTrace,
-}
+var (
+	// DefaultLogDir defines default log dir
+	DefaultLogDir = "./logs/now"
+	// DefaultHistoryDir defines default history log dir
+	DefaultHistoryDir = "./logs/history"
+)

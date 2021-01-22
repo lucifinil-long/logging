@@ -10,4 +10,5 @@ type Logger interface {
 	Trace(...interface{})
 	Warn(...interface{})
 	Error(...interface{})
+	Shutdown() error
 }
