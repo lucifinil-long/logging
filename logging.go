@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -26,9 +27,20 @@ func DefaultConfig() *Config {
 	}
 }
 
-// GetLogger will get a logger object that component, logname specified;
+// ScreenLogger returns an screen logger
+func ScreenLogger(level uint8) Logger {
+	if level > LogLevelError {
+		level = LogLevelTrace
+	}
+
+	return &stdoutLogger{
+		level: level,
+	}
+}
+
+// FileLogger get a file logger object that component, logname specified;
 //	will using config to create a new logger object if not found
-func GetLogger(component, logname string, config *Config,
+func FileLogger(component, logname string, config *Config,
 	suffixes ...string) (Logger, error) {
 	if config == nil || config.LogDir == "" {
 		fmt.Println(time.Now().Format("2006-01-02 15:04:05.999:"), "logging.GetLogger",
@@ -65,6 +77,23 @@ func GetLogger(component, logname string, config *Config,
 	return logger, nil
 }
 
+// GetLogger will get a logger
+// 	if config is nil or log directory is not set, a screen logger is returned;
+// 	otherwise a file logger is returned
+func GetLogger(component, logname string, config *Config,
+	suffixes ...string) (Logger, error) {
+	if config == nil || config.LogDir == "" {
+		level := LogLevelTrace
+		if config != nil {
+			level = config.Level
+		}
+
+		return ScreenLogger(level), nil
+	}
+
+	return FileLogger(component, logname, config, suffixes...)
+}
+
 func newLogger(logDir, historyDir string,
 	level uint8,
 	component, logname, suffix string) (Logger, error) {
@@ -89,4 +118,19 @@ func newLogger(logDir, historyDir string,
 	logger.SetLevel(level)
 
 	return logger, nil
+}
+
+var (
+	defaultDepth = 3
+)
+
+func addFuncNameToLogs(depth int, args []interface{}) []interface{} {
+	pc := make([]uintptr, 1)
+	runtime.Callers(depth, pc)
+	f := runtime.FuncForPC(pc[0])
+	logs := make([]interface{}, 0, len(args)+1)
+	logs = append(logs, f.Name())
+	logs = append(logs, args...)
+
+	return logs
 }

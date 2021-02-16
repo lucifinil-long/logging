@@ -2,7 +2,6 @@ package logging
 
 import (
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,7 +11,7 @@ import (
 const (
 	logDebug = "debug"
 	logTrace = "trace"
-	logWarn  = "warn"
+	logWarn  = "warn "
 	logError = "error"
 )
 
@@ -33,20 +32,20 @@ const (
 
 var logLevels = []string{logDebug, logTrace, logWarn, logError}
 
-type logger struct {
+type fileLogger struct {
 	sync.RWMutex
 	logInfoMap map[string]*loggerInfo
 	suffixInfo string
 	logLevel   uint8
 }
 
-func (l *logger) String() string {
+func (l *fileLogger) String() string {
 	ret := fmt.Sprintf("{\"level\":%v, \"suffix\":%v, \"log info map\":%v}",
 		l.logLevel, l.suffixInfo, l.logInfoMap)
 	return ret
 }
 
-func (l *logger) Write(filename string, suffix bool, args ...interface{}) {
+func (l *fileLogger) Write(filename string, suffix bool, args ...interface{}) {
 	l.Lock()
 	defer l.Unlock()
 
@@ -65,7 +64,7 @@ func (l *logger) Write(filename string, suffix bool, args ...interface{}) {
 	loggerInfo.Write(format("Raw", suffix, l.suffixInfo, args...))
 }
 
-func (l *logger) SetLevel(level uint8) {
+func (l *fileLogger) SetLevel(level uint8) {
 	l.Lock()
 	defer l.Unlock()
 	if level > LogLevelError {
@@ -75,30 +74,19 @@ func (l *logger) SetLevel(level uint8) {
 	}
 }
 
-func (l *logger) CheckLevel(level uint8) bool {
+func (l *fileLogger) CheckLevel(level uint8) bool {
 	l.RLock()
 	defer l.RUnlock()
 	return l.logLevel <= level
 }
 
-func addFuncNameToLogs(args []interface{}) []interface{} {
-	pc := make([]uintptr, 1)
-	runtime.Callers(3, pc)
-	f := runtime.FuncForPC(pc[0])
-	logs := make([]interface{}, 0, len(args)+1)
-	logs = append(logs, f.Name())
-	logs = append(logs, args...)
-
-	return logs
-}
-
-func (l *logger) Debug(args ...interface{}) {
-	logs := addFuncNameToLogs(args)
+func (l *fileLogger) Debug(args ...interface{}) {
+	logs := addFuncNameToLogs(defaultDepth, args)
 
 	l.debug(logs...)
 }
 
-func (l *logger) debug(args ...interface{}) {
+func (l *fileLogger) debug(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logDebug]
 	d := l.CheckLevel(LogLevelDebug)
@@ -117,13 +105,13 @@ func (l *logger) debug(args ...interface{}) {
 	loggerInfo.Write(log)
 }
 
-func (l *logger) Trace(args ...interface{}) {
-	logs := addFuncNameToLogs(args)
+func (l *fileLogger) Trace(args ...interface{}) {
+	logs := addFuncNameToLogs(defaultDepth, args)
 
 	l.trace(logs...)
 }
 
-func (l *logger) trace(args ...interface{}) {
+func (l *fileLogger) trace(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logTrace]
 	d := l.CheckLevel(LogLevelTrace)
@@ -141,13 +129,13 @@ func (l *logger) trace(args ...interface{}) {
 	loggerInfo.Write(format(logTrace, hasSuffix, l.suffixInfo, args...))
 }
 
-func (l *logger) Warn(args ...interface{}) {
-	logs := addFuncNameToLogs(args)
+func (l *fileLogger) Warn(args ...interface{}) {
+	logs := addFuncNameToLogs(defaultDepth, args)
 
 	l.warn(logs...)
 }
 
-func (l *logger) warn(args ...interface{}) {
+func (l *fileLogger) warn(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logWarn]
 	d := l.CheckLevel(LogLevelWarn)
@@ -165,7 +153,7 @@ func (l *logger) warn(args ...interface{}) {
 	loggerInfo.Write(format(logWarn, hasSuffix, l.suffixInfo, args...))
 }
 
-func (l *logger) Error(args ...interface{}) {
+func (l *fileLogger) Error(args ...interface{}) {
 	l.RLock()
 	loggerInfo := l.logInfoMap[logError]
 	d := l.CheckLevel(LogLevelError)
@@ -174,7 +162,7 @@ func (l *logger) Error(args ...interface{}) {
 		return
 	}
 
-	logs := addFuncNameToLogs(args)
+	logs := addFuncNameToLogs(defaultDepth, args)
 
 	l.warn(logs...)
 
@@ -185,7 +173,7 @@ func (l *logger) Error(args ...interface{}) {
 	loggerInfo.Write(format(logError, hasSuffix, l.suffixInfo, logs...))
 }
 
-func (l *logger) Shutdown() error {
+func (l *fileLogger) Shutdown() error {
 	for k, v := range l.logInfoMap {
 		v.Close()
 		println(time.Now().Format("2006-01-02 15:04:05.000:"), "closed", k, "logging.")
@@ -206,7 +194,7 @@ func buildLogger(filename, suffix, historyDir string) (Logger, error) {
 		logInfoMap[level] = logInfo
 	}
 
-	return &logger{
+	return &fileLogger{
 		logInfoMap: logInfoMap,
 		suffixInfo: suffix,
 	}, nil

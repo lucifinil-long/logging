@@ -23,6 +23,10 @@ func TestInit(t *testing.T) {
 		t.Fatal("init logger failed with error", err)
 	}
 	l = logger
+
+	// l = ScreenLogger(LogLevelDebug)
+	// config := &Config{}
+	// l, _ = GetLogger("logging", "test", config)
 }
 
 func TestLogs(_ *testing.T) {
