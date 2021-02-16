@@ -27,8 +27,8 @@ func DefaultConfig() *Config {
 	}
 }
 
-// ScreenLogger returns an screen logger
-func ScreenLogger(level uint8) Logger {
+// StdoutLogger returns an stdout logger
+func StdoutLogger(level uint8) Logger {
 	if level > LogLevelError {
 		level = LogLevelTrace
 	}
@@ -88,7 +88,7 @@ func GetLogger(component, logname string, config *Config,
 			level = config.Level
 		}
 
-		return ScreenLogger(level), nil
+		return StdoutLogger(level), nil
 	}
 
 	return FileLogger(component, logname, config, suffixes...)
